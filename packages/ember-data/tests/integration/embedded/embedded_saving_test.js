@@ -2,18 +2,25 @@ var store, Adapter, adapter;
 var Post, Comment, User, App;
 var attr = DS.attr;
 
+var get = Ember.get, set = Ember.set;
+
+var originalLookup = Ember.lookup;
+
 module("Embedded Saving", {
   setup: function() {
-    App = Ember.Namespace.create({ name: "App" });
+    App = Ember.lookup = Ember.Namespace.create({ name: "App" });
 
     Comment = App.Comment = DS.Model.extend({
-      title: attr('string'),
-      post: DS.belongsTo('Post')
+      title: attr('string')
     });
 
     Post = App.Post = DS.Model.extend({
       title: attr('string'),
       comments: DS.hasMany(Comment)
+    });
+
+    Comment.reopen({
+      post: DS.belongsTo('Post')
     });
 
     Adapter = DS.RESTAdapter.extend();
@@ -32,7 +39,37 @@ module("Embedded Saving", {
   teardown: function() {
     store.destroy();
     App.destroy();
+    Ember.lookup = originalLookup;
   }
+});
+
+asyncTest("Modifying the parent in a different transaction", function() {
+  adapter.ajax = function(url, type, hash) {
+    equal(url, '/posts/1');
+    equal(type, 'PUT');
+    equal(hash.data.post.comments.length, 1);
+
+    setTimeout(function() {
+      hash.data.post.comments[0].title = 'wtf';
+      hash.success.call(adapter, hash.data);
+      start();
+    });
+  };
+
+  adapter.load(store, Post, {
+    id: 1,
+    title: 'I cannot wait for Ember.Component to be implemented.',
+    comments: [{id: 2, title: 'yes!'}]
+  });
+
+  var post = store.find(Post, 1);
+
+  var t = store.transaction();
+  t.add(post);
+
+  set(post, 'title', "Hopefully soon.");
+
+  t.commit();
 });
 
 asyncTest("Adding a new embedded record to an unsaved record: Both records use the same POST request.", function() {
